@@ -10,8 +10,8 @@ import (
 )
 
 func main() {
-	p := flag.String("p", "", "Path to CSV files")
-	maxGoroutines := flag.Int("t", 4, "Number of parallel gourotines")
+	p := flag.String("path", "", "Path to CSV files")
+	maxGoroutines := flag.Int("routines", 4, "Number of parallel gourotines")
 	dbEndoint := flag.String("db_endpoint", "http://localhost:9200", "DB endpoint")
 	flag.Parse()
 

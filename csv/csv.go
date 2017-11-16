@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Rakanixu/csv_analysis/db"
+	"github.com/Rakanixu/elastic-analytics/db"
 )
 
 func NewParser(pathToCVVs string, goroutines int) *Parser {
@@ -30,7 +30,7 @@ type Parser struct {
 var wg sync.WaitGroup
 
 func (n *Parser) ToJSON() {
-	n.analyzeCSVs(n.getCSVFiles(n.pathToCVVs))
+	n.processCSVs(n.getCSVFiles(n.pathToCVVs))
 }
 
 func (n *Parser) getCSVFiles(path string) []string {
@@ -48,7 +48,7 @@ func (n *Parser) getCSVFiles(path string) []string {
 	return files
 }
 
-func (n *Parser) analyzeCSVs(paths []string) {
+func (n *Parser) processCSVs(paths []string) {
 	// Channel buffer equal to number of gourotines
 	blocker := make(chan struct{}, n.gourotines)
 
@@ -73,41 +73,7 @@ func (n *Parser) analyzeCSVs(paths []string) {
 				log.Fatal(err)
 			}
 
-			r := csv.NewReader(strings.NewReader(string(b[:count])))
-
-			counter := 0
-			var columns []string
-
-			for {
-				record, err := r.Read()
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				if counter == 0 {
-					columns = record
-				} else {
-					recMap := make(map[string]interface{})
-
-					for i, k := range columns {
-						if k == "Metadata" {
-							planifyData(recMap, "Metadata", record[i], 1, counter)
-						} else {
-							recMap[k] = record[i]
-						}
-					}
-
-					json, err := json.MarshalIndent(recMap, "", "\t")
-					if err != nil {
-						log.Fatal(err)
-					}
-					db.Index(strconv.Itoa(counter), string(json))
-				}
-				counter++
-			}
+			convertToJSON(string(b[:count]))
 
 			// Read from blocker channel to allow next iteration
 			<-blocker
@@ -116,6 +82,44 @@ func (n *Parser) analyzeCSVs(paths []string) {
 	}
 
 	wg.Wait()
+}
+
+func convertToJSON(file string) {
+	r := csv.NewReader(strings.NewReader(file))
+
+	counter := 0
+	var columns []string
+
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if counter == 0 {
+			columns = record
+		} else {
+			recMap := make(map[string]interface{})
+
+			for i, k := range columns {
+				if k == "Metadata" {
+					planifyData(recMap, "Metadata", record[i], 1, counter)
+				} else {
+					recMap[k] = record[i]
+				}
+			}
+
+			json, err := json.MarshalIndent(recMap, "", "\t")
+			if err != nil {
+				log.Fatal(err)
+			}
+			db.Index(strconv.Itoa(counter), string(json))
+		}
+		counter++
+	}
 }
 
 /**
