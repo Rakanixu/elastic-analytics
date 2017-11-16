@@ -9,11 +9,6 @@ import (
 	elib "gopkg.in/olivere/elastic.v5"
 )
 
-const (
-	DEFAULT_INDEX = "index"
-	DEFAULT_TYPE  = "record"
-)
-
 type elastic struct {
 	Client        *elib.Client
 	BulkProcessor *elib.BulkProcessor
@@ -61,21 +56,26 @@ func (e *elastic) Init(url string) error {
 	return nil
 }
 
-func (e *elastic) Index(id string, data string) error {
+func (e *elastic) Index(id string, index string, data string) error {
 	ctx := context.Background()
-	exists, err := e.Client.IndexExists(DEFAULT_INDEX).Do(ctx)
+	exists, err := e.Client.IndexExists(index).Do(ctx)
 	if err != nil {
 		return err
 	}
 
 	if !exists {
-		_, err := e.Client.CreateIndex(DEFAULT_INDEX).Do(ctx)
+		_, err := e.Client.CreateIndex(index).Do(ctx)
 		if err != nil {
 			return err
 		}
 	}
 
-	_, err = e.Client.Index().Index(DEFAULT_INDEX).Type(DEFAULT_TYPE).Id(id).BodyString(data).Do(ctx)
+	if id != "" {
+		_, err = e.Client.Index().Index(index).Type(db.DEFAULT_TYPE).Id(id).BodyString(data).Do(ctx)
+	} else {
+		_, err = e.Client.Index().Index(index).Type(db.DEFAULT_TYPE).BodyString(data).Do(ctx)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -87,8 +87,8 @@ func (e *elastic) BulkIndex(id string, data interface{}) {
 	log.Println("BULKINDEX", id, data)
 
 	r := elib.NewBulkUpdateRequest().
-		Index(DEFAULT_INDEX).
-		Type(DEFAULT_TYPE).
+		Index(db.DEFAULT_INDEX).
+		Type(db.DEFAULT_TYPE).
 		Id(id).
 		DocAsUpsert(true).
 		Doc(data)

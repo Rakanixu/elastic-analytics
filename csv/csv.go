@@ -1,14 +1,15 @@
 package csv
 
 import (
+	"crypto/md5"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -19,21 +20,24 @@ func NewParser(pathToCVVs string, goroutines int) *Parser {
 	return &Parser{
 		pathToCVVs: pathToCVVs,
 		gourotines: goroutines,
+		md5:        md5.New(),
 	}
 }
 
 type Parser struct {
 	pathToCVVs string
 	gourotines int
+	files      []string
+	md5        hash.Hash
 }
-
-var wg sync.WaitGroup
 
 func (n *Parser) ToJSON() {
-	n.processCSVs(n.getCSVFiles(n.pathToCVVs))
+	n.getCSVFiles(n.pathToCVVs)
+	n.checkFiles()
+	n.processCSVs()
 }
 
-func (n *Parser) getCSVFiles(path string) []string {
+func (n *Parser) getCSVFiles(path string) {
 	if path != "" {
 		path = fmt.Sprintf("%s/*.csv", path)
 	} else {
@@ -45,14 +49,42 @@ func (n *Parser) getCSVFiles(path string) []string {
 		log.Fatal(err)
 	}
 
-	return files
+	n.files = files
 }
 
-func (n *Parser) processCSVs(paths []string) {
+func (n *Parser) checkFiles() {
+	for _, v := range n.files {
+		f, err := os.Open(v)
+		if err != nil {
+			log.Fatal("Error opening CSV files", err)
+		}
+		defer f.Close()
+
+		var beginning [1000]byte
+		_, err = io.ReadFull(f, beginning[:])
+		if err != nil {
+			log.Fatal("Error checking CSV file", err)
+		}
+
+		_, err = n.md5.Write(beginning[:])
+		if err != nil {
+			log.Fatal("Error checking CSV checksum", err)
+		}
+
+		checksum := fmt.Sprintf("%x", n.md5.Sum(nil))
+
+		db.Index(checksum, db.FILE_INDEX, fmt.Sprintf("{\"checksum\": \"%s\"}", checksum))
+		log.Println(checksum)
+		n.md5.Reset()
+	}
+}
+
+func (n *Parser) processCSVs() {
+	var wg sync.WaitGroup
 	// Channel buffer equal to number of gourotines
 	blocker := make(chan struct{}, n.gourotines)
 
-	for _, v := range paths {
+	for _, v := range n.files {
 		// Fill blocker channel
 		blocker <- struct{}{}
 		wg.Add(1)
@@ -73,7 +105,7 @@ func (n *Parser) processCSVs(paths []string) {
 				log.Fatal(err)
 			}
 
-			convertToJSON(string(b[:count]))
+			n.convertToJSON(string(b[:count]))
 
 			// Read from blocker channel to allow next iteration
 			<-blocker
@@ -84,42 +116,58 @@ func (n *Parser) processCSVs(paths []string) {
 	wg.Wait()
 }
 
-func convertToJSON(file string) {
+func (n *Parser) convertToJSON(file string) {
+	var wg sync.WaitGroup
+	var mutex = &sync.Mutex{}
+	blocker := make(chan struct{}, 16)
 	r := csv.NewReader(strings.NewReader(file))
-
 	counter := 0
 	var columns []string
 
 	for {
+		blocker <- struct{}{}
+		wg.Add(1)
 		record, err := r.Read()
 		if err == io.EOF {
-			break
+			return
 		}
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if counter == 0 {
-			columns = record
-		} else {
-			recMap := make(map[string]interface{})
+		go func(counter int, record []string) {
+			if counter == 0 {
+				columns = record
+			} else {
+				recMap := make(map[string]interface{})
 
-			for i, k := range columns {
-				if k == "Metadata" {
-					planifyData(recMap, "Metadata", record[i], 1, counter)
-				} else {
-					recMap[k] = record[i]
+				for i, k := range columns {
+					if k == "Metadata" {
+						planifyData(mutex, recMap, "Metadata", record[i], 1, counter)
+					} else {
+						mutex.Lock()
+						recMap[k] = record[i]
+						mutex.Unlock()
+					}
 				}
+
+				json, err := json.MarshalIndent(recMap, "", "\t")
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				db.Index( /* string(n.md5.Sum(json[0:100])) */ "", db.DEFAULT_INDEX, string(json))
+				//n.md5.Reset()
 			}
 
-			json, err := json.MarshalIndent(recMap, "", "\t")
-			if err != nil {
-				log.Fatal(err)
-			}
-			db.Index(strconv.Itoa(counter), string(json))
-		}
+			<-blocker
+			wg.Done()
+		}(counter, record)
+
 		counter++
 	}
+
+	wg.Wait()
 }
 
 /**
@@ -130,7 +178,7 @@ func convertToJSON(file string) {
 * deep sets how many recursive iterations will be done over a data fragment
 * rowNumber is the row number in the CSV file
  */
-func planifyData(root map[string]interface{}, key string, data interface{}, deep, rowNumber int) {
+func planifyData(mutex *sync.Mutex, root map[string]interface{}, key string, data interface{}, deep, rowNumber int) {
 	m := make(map[string]interface{})
 
 	str, ok := data.(string)
@@ -153,12 +201,14 @@ func planifyData(root map[string]interface{}, key string, data interface{}, deep
 		_, okNum := v.(float64)
 		_, okBool := v.(bool)
 		if okStr || okNum || okBool {
+			mutex.Lock()
 			root[nextKey] = v
+			mutex.Unlock()
 		} else {
 			if v != nil {
 				deep--
 				if deep > 0 {
-					planifyData(root, nextKey, v, deep, rowNumber)
+					planifyData(mutex, root, nextKey, v, deep, rowNumber)
 				}
 			}
 		}

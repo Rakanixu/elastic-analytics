@@ -1,9 +1,15 @@
 package db
 
+const (
+	DEFAULT_INDEX = "index"
+	FILE_INDEX    = "files_checksum"
+	DEFAULT_TYPE  = "record"
+)
+
 // Db ...
 type Db interface {
 	Init(url string) error
-	Index(id string, data string) error
+	Index(id string, index string, data string) error
 	BulkIndex(id string, data interface{})
 }
 
@@ -20,8 +26,8 @@ func Init(url string) error {
 }
 
 // Index ...
-func Index(id string, data string) error {
-	return s.Index(id, data)
+func Index(id string, index string, data string) error {
+	return s.Index(id, index, data)
 }
 
 // BulkIndex ...
