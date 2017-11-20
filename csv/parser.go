@@ -231,7 +231,8 @@ func planifyData(mutex *sync.Mutex, root map[string]interface{}, key string, dat
 	if ok {
 		err := json.Unmarshal([]byte(str), &m)
 		if err != nil {
-			log.Fatal(err)
+			log.Println("Cannot unmarshall ", str, err)
+			return
 		}
 	} else {
 		m, ok = data.(map[string]interface{})
