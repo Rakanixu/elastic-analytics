@@ -56,7 +56,7 @@ func (e *elastic) Init(url string) error {
 	return nil
 }
 
-func (e *elastic) Index(id string, index string, data string) error {
+func (e *elastic) Index(id string, index string, docType string, data string) error {
 	ctx := context.Background()
 	exists, err := e.Client.IndexExists(index).Do(ctx)
 	if err != nil {
@@ -71,9 +71,9 @@ func (e *elastic) Index(id string, index string, data string) error {
 	}
 
 	if id != "" {
-		_, err = e.Client.Index().Index(index).Type(db.DEFAULT_TYPE).Id(id).BodyString(data).Do(ctx)
+		_, err = e.Client.Index().Index(index).Type(docType).Id(id).BodyString(data).Do(ctx)
 	} else {
-		_, err = e.Client.Index().Index(index).Type(db.DEFAULT_TYPE).BodyString(data).Do(ctx)
+		_, err = e.Client.Index().Index(index).Type(docType).BodyString(data).Do(ctx)
 	}
 
 	if err != nil {
@@ -94,4 +94,28 @@ func (e *elastic) BulkIndex(id string, data interface{}) {
 		Doc(data)
 
 	e.BulkProcessor.Add(r)
+}
+
+func (e *elastic) Search(index string, docType string, query interface{}) ([]interface{}, error) {
+	ctx := context.Background()
+	exists, err := e.Client.IndexExists(index).Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !exists {
+		return nil, nil
+	}
+
+	out, err := e.Client.Search(index).Type(docType).Source(query).Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]interface{}, len(out.Hits.Hits))
+	for k, hit := range out.Hits.Hits {
+		result[k] = *hit.Source
+	}
+
+	return result, nil
 }
