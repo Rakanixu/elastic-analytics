@@ -1,0 +1,31 @@
+#Create a new index with Start TIme and End Time as dates
+curl -XPUT 'localhost:9200/index_with_dates?pretty' -H 'Content-Type: application/json' -d'
+{
+  "mappings": {
+    "record": {
+      "properties": {
+        "Start Time": {
+          "type": "date",
+          "format": "yyyy-MM-dd HH:mm:ss"
+        },
+        "End Time": {
+          "type": "date",
+          "format": "yyyy-MM-dd HH:mm:ss"
+        }
+      }
+    }
+  }
+}'
+
+
+# Reindex data 
+curl -XPOST 'localhost:9200/_reindex?pretty' -H 'Content-Type: application/json' -d'
+{
+  "source": {
+    "index": "index"
+  },
+  "dest": {
+    "index": "index_with_dates"
+  }
+}
+'
