@@ -1,19 +1,24 @@
 # Get all errors playing trailers
 {  
-   "bool":{  
-      "must_not":[  
-         {  
-            "match":{  
-               "Error Code":"OK"
-            }
-         }
-      ],
-      "must": [
-        {
-          "match": {
-            "Metadata.content_type": "trailer"
-          }
+  "bool":{  
+    "must_not":[  
+    {  
+      "match":{  
+        "Error Code":"OK"
+      }
+    }
+    ],
+    "must": [
+      {
+        "term": {
+          "Device Type": "tv"
         }
-      ]
-   }
+      },
+      {
+        "match": {
+          "extraParam1": "none"
+        }
+      }
+    ]
+  }
 }
